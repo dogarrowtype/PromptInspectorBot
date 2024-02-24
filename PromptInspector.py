@@ -45,12 +45,26 @@ def get_params_from_string(param_str):
 
 
 def get_embed(embed_dict, context: Message):
+    embed_dict = embed_dict | {}
+    important_fields = ("Prompt", "Negative Prompt", "Steps", "Sampler", "CFG scale", "Seed", "Size", "Model", "VAE", "Denoising strength", "Hires upscale", "Hires steps", "Hires upscaler", "Version")
     embed = Embed(color=context.author.color)
-    for key, value in embed_dict.items():
+    count = 0
+    for key in important_fields:
+        if count >= 25:
+            break
+        value = embed_dict.get(key)
+        if value is None:
+            continue
         embed.add_field(name=key, value=value, inline='Prompt' not in key)
+        del embed_dict[key]
+        count += 1
+    for key, value in embed_dict.items():
+        if count >= 25:
+            break
+        embed.add_field(name=key, value=value, inline='Prompt' not in key)
+        count += 1
     embed.set_footer(text=f'Posted by {context.author}', icon_url=context.author.display_avatar)
     return embed
-
 
 def read_info_from_image_stealth(image: Image.Image):
     # trying to read stealth pnginfo
@@ -266,8 +280,9 @@ async def on_raw_reaction_add(ctx: RawReactionActionEvent):
                 f.seek(0)
                 await user_dm.send(file=File(f, "parameters.yaml"))
         
-        except:
-            pass
+        except Exception as error:
+            print(f"{type(error).__name__}: {error}")
+            
 
 
 @client.message_command(name="View Prompt")
@@ -292,6 +307,48 @@ async def message_command(ctx: ApplicationContext, message: Message):
             f.write(response)
             f.seek(0)
             await ctx.respond(file=File(f, "parameters.yaml"), ephemeral=True)
+
+@client.message_command(name="View Prompt (Get a DM)")
+async def message_command(ctx: ApplicationContext, message: Message):
+    """Send image metadata in selected post to user DM."""
+    user_dm = await client.get_user(ctx.author.id).create_dm()
+    attachments = [a for a in message.attachments if a.filename.lower().endswith(".png")]
+    if not attachments:
+        await ctx.respond("This post contains no matching images.", ephemeral=True)
+        return
+    await ctx.defer(ephemeral=True)
+    metadata = OrderedDict()
+    tasks = [read_attachment_metadata(i, attachment, metadata) for i, attachment in enumerate(attachments)]
+    await asyncio.gather(*tasks)
+    if not metadata:
+        await ctx.respond(f"This post contains no image generation data.", ephemeral=True)
+        return
+    for attachment, data in [(attachments[i], data) for i, data in metadata.items()]:
+        try:
+
+            if 'Steps:' in data:
+              params = get_params_from_string(data)
+              embed = get_embed(params, message)
+              embed.set_image(url=attachment.url)
+              custom_view = MyView()
+              custom_view.metadata = data
+              await user_dm.send(view=custom_view, embed=embed, mention_author=False)
+            else :
+              img_type = "ComfyUI" if "\"inputs\"" in data else "NovelAI"
+              embed = Embed(title=img_type+" Parameters", color=message.author.color)
+              embed.set_footer(text=f'Posted by {message.author}', icon_url=message.author.display_avatar)
+              embed.set_image(url=attachment.url)
+              await user_dm.send(embed=embed, mention_author=False)
+              with io.StringIO() as f:
+                f.write(data)
+                f.seek(0)
+                await user_dm.send(file=File(f, "parameters.yaml"))
+        
+        except Exception as error:
+            print(f"{type(error).__name__}: {error}")
+            await ctx.respond(f"Something went wrong. Please tell @dogarrowtype I'm struggling to function out here in these mean streets.", ephemeral=True)
+
+    await ctx.respond(f"DM sent!", ephemeral=True)
 
 
 client.run(os.environ["BOT_TOKEN"])
