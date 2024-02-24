@@ -218,8 +218,8 @@ async def read_attachment_metadata(i: int, attachment: Attachment, metadata: Ord
                 info = img.info['prompt']
               elif img.info['Software'] == 'NovelAI':
                 info = img.info["Description"] + img.info["Comment"]
-            else:
-                info = read_info_from_image_stealth(img)
+            #else:
+            #    info = read_info_from_image_stealth(img)
                 
             if info:
                 metadata[i] = info
@@ -282,7 +282,7 @@ async def message_command(ctx: ApplicationContext, message: Message):
     tasks = [read_attachment_metadata(i, attachment, metadata) for i, attachment in enumerate(attachments)]
     await asyncio.gather(*tasks)
     if not metadata:
-        await ctx.respond(f"This post contains no image generation data.\n{message.author.mention} needs to install [this extension](<https://github.com/ashen-sensored/sd_webui_stealth_pnginfo>).", ephemeral=True)
+        await ctx.respond(f"This post contains no image generation data.", ephemeral=True)
         return
     response = "\n\n".join(metadata.values())
     if len(response) < 1980:
