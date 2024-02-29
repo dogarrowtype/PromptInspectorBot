@@ -48,7 +48,7 @@ class Config:
         pass
 
     FIELDS = (
-        ("monitored_channel_ids", ()),
+        ("monitored_channel_ids", set()),
         ("scan_limit_bytes", 10 * 1024**2),  # Default 10 MB
         (
             "a1111_important_fields",
@@ -87,6 +87,8 @@ class Config:
         for k, _v in self.FIELDS:
             cfgval = cfg.get(k.upper(), empty)
             if cfgval is not empty:
+                if k == "monitored_channel_ids":
+                    cfgval = set(cfgval)
                 setattr(self, k, cfgval)
 
 
@@ -557,6 +559,9 @@ def main():
         datefmt="%Y%m%d.%H%M%S",
         style="{",
     )
+    if not CFG.monitored_channel_ids:
+        log.error("No channels to monitor!")
+        sys.exit(1)
     bot_token = os.environ.get("BOT_TOKEN")
     if bot_token is None:
         log.error("BOT_TOKEN environment variable missing!")
