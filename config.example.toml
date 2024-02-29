@@ -1,0 +1,22 @@
+MONITORED_CHANNEL_IDS = [1234]
+SCAN_LIMIT_BYTES = 104857600 # 10MiB
+A1111_IMPORTANT_FIELDS = [
+    "Prompt",
+    "Negative Prompt",
+    "Steps",
+    "Sampler",
+    "CFG scale",
+    "Seed",
+    "Size",
+    "Model",
+    "VAE",
+    "Denoising strength",
+    "Hires upscale",
+    "Hires steps",
+    "Hires upscaler",
+    "Version",
+]
+A1111_PROMPT_SIZE_LIMIT=1000
+MESSAGE_EMBED_LIMIT=25
+ATTACH_FILE_SIZE_THRESHOLD=1980
+REACT_ON_NO_METADATA=false
