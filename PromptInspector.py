@@ -72,6 +72,7 @@ class Config:
         ("a1111_prompt_size_limit", 1000),
         ("message_embed_limit", 25),
         ("attach_file_size_threshold", 1980),
+        ("react_on_no_metadata", False),
     )
 
     def __init__(self):
@@ -422,12 +423,9 @@ async def collect_attachments(
 
 
 async def update_reactions(message: Message, count: int):
-    # Removing reactions requires finding the member so NYI.
     if count > 0:
         await message.add_reaction("🔎")
-        # await message.remove_reaction("⛔", ??)
-    else:
-        # await message.remove_reaction("🔎", ??)
+    elif CFG.react_on_no_metadata:
         await message.add_reaction("⛔")
 
 
