@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import io
 import json
+import logging as log
 import os
 import sys
 from collections import OrderedDict
@@ -27,7 +28,19 @@ from discord.ui import View, button
 from dotenv import load_dotenv
 from PIL import Image
 
+LOG_LEVEL = log.INFO
+
 load_dotenv()
+
+
+class __f:  # noqa: N801
+    def __init__(self, fmt, /, *args: Sequence[Any], **kwargs: dict[Any, Any]):
+        self.fmt = fmt
+        self.args = args
+        self.kwargs = kwargs
+
+    def __str__(self):
+        return self.fmt.format(*self.args, **self.kwargs)
 
 
 class Config:
@@ -372,7 +385,8 @@ async def read_attachment_metadata(
         image_data = await attachment.read()
         populate_attachment_metadata(i, image_data, metadata)
     except Exception as error:
-        print(f"{type(error).__name__}: {error}")
+        errname = type(error).__name__
+        log.exception(__f("Error: {errname}", errname=errname), exc_info=error)
 
 
 async def collect_attachments(
@@ -417,7 +431,7 @@ async def update_reactions(message: Message, count: int):
 
 @client.event
 async def on_ready():
-    print(f"Logged in as {client.user}!")
+    log.info(__f("Logged in as {user}!", user=client.user))
 
 
 @client.event
@@ -434,7 +448,7 @@ async def on_message(message: Message):
     ]
     if not attachments:
         return
-    print("MSG", message)
+    log.info(__f("MESSAGE: {0!r}", message))
     count = 0
     for i, attachment in enumerate(
         attachments,
@@ -460,6 +474,7 @@ async def on_raw_reaction_add(ctx: RawReactionActionEvent):
     message = await channel.fetch_message(ctx.message_id)
     if not message:
         return
+    log.info(__f("REACTION: {0!r}", ctx))
     metadata, attachments = await collect_attachments(ctx, message, respond=False)
     count = 0
     if metadata:
@@ -474,6 +489,9 @@ async def on_raw_reaction_add(ctx: RawReactionActionEvent):
 @client.message_command(name="View Prompt")
 async def message_command_view_prompt(ctx: ApplicationContext, message: Message):
     """Get raw list of parameters for every image in this post."""
+    log.info(
+        __f("APP: View: ctx={ctx!r}, message={message!r}", ctx=ctx, message=message),
+    )
     metadata, attachments = await collect_attachments(ctx, message)
     if not metadata:
         return
@@ -485,6 +503,9 @@ async def message_command_view_prompt(ctx: ApplicationContext, message: Message)
 @client.message_command(name="View Prompt (Get a DM)")
 async def message_command_view_prompt_dm(ctx: ApplicationContext, message: Message):
     """Get raw list of parameters for every image in this post."""
+    log.info(
+        __f("APP: ViewDM: ctx={ctx!r}, message={message!r}", ctx=ctx, message=message),
+    )
     metadata, attachments = await collect_attachments(ctx, message)
     if not metadata:
         return
@@ -530,6 +551,16 @@ def main():
         handle_check(args.dump)
         return
     # Otherwise run the bot
+    log.basicConfig(
+        level=LOG_LEVEL,
+        format="{asctime} {levelname:>8}: {message}",
+        datefmt="%Y%m%d.%H%M%S",
+        style="{",
+    )
+    bot_token = os.environ.get("BOT_TOKEN")
+    if bot_token is None:
+        log.error("BOT_TOKEN environment variable missing!")
+        sys.exit(1)
     client.run(os.environ["BOT_TOKEN"])
 
 
