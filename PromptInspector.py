@@ -495,9 +495,14 @@ async def message_command_view_prompt(ctx: ApplicationContext, message: Message)
     metadata, attachments = await collect_attachments(ctx, message)
     if not metadata:
         return
-    for attachment, md in ((attachments[i], data) for i, data in metadata.items()):
+    extraargs = {}
+    for idx, (attachment, md) in enumerate(
+        (attachments[i], data) for i, data in metadata.items()
+    ):
         embed, view = md.get_embed_view(message, attachment, ephemeral=True)
-        await ctx.respond(embed=embed, view=view)
+        await ctx.respond(embed=embed, view=view, **extraargs)
+        if idx == 0:
+            extraargs["ephemeral"] = True
 
 
 @client.message_command(name="View Prompt (Get a DM)")
