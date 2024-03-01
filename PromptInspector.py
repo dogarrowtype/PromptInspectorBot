@@ -4,7 +4,7 @@ import argparse
 import asyncio
 import io
 import json
-import logging as log
+import logging
 import os
 import sys
 from collections import OrderedDict
@@ -28,9 +28,9 @@ from discord.ui import View, button
 from dotenv import load_dotenv
 from PIL import Image
 
-LOG_LEVEL = log.INFO
-
 load_dotenv()
+
+log = None
 
 
 class __f:  # noqa: N801
@@ -73,6 +73,8 @@ class Config:
         ("message_embed_limit", 25),
         ("attach_file_size_threshold", 1980),
         ("react_on_no_metadata", False),
+        ("log_color", False),
+        ("log_level", "INFO"),
     )
 
     def __init__(self):
@@ -317,6 +319,60 @@ class MetadataComfyUI(Metadata):
             "emptylatentimage": (("width", int), ("height", int)),
             "promptcontrolsimple": (("positive", str), ("negative", str)),
             "clipsetlastlayer": (("stop_at_clip_layer", int),),
+            "cliptextencodesdxl": (("text_l", str), ("text_g", str)),
+            "bnk_cliptextencodeadvanced": (("text", str),),
+            "bnk_cliptextencodesdxladvanced": (("text", str),),
+            "ksampler": (
+                ("seed", int),
+                ("steps", int),
+                ("cfg", float),
+                ("sampler_name", str),
+                ("scheduler", str),
+            ),
+            "ksampleradvanced": (
+                ("noise_seed", int),
+                ("steps", int),
+                ("start_at_step", int),
+                ("end_at_step", int),
+                ("cfg", float),
+                ("sampler_name", str),
+                ("scheduler", str),
+            ),
+            "samplercustom": (
+                ("noise_seed", int),
+                ("cfg", float),
+            ),
+            "efficient_loader": (
+                ("ckpt_name", str),
+                ("vae_name", str),
+                ("clip_skip", int),
+                ("clip_positive", str),
+                ("clip_negative", str),
+                ("empty_latent_width", int),
+                ("empty_latent_height", int),
+            ),
+            "checkpointloader|pysssss": (("ckpt_name", str),),
+            "checkpoint loader (simple)": (("ckpt_name", str),),  # WAS Node Suite
+            "ttn pipeloader": (
+                ("ckpt_name", str),
+                ("vae_name", str),
+                ("clip_skip", int),
+                ("positive", str),
+                ("negative", str),
+                ("empty_latent_width", int),
+                ("empty_latent_height", int),
+                ("seed", int),
+            ),
+            "ttn pipeloadersdxl": (
+                ("ckpt_name", str),
+                ("vae_name", str),
+                ("clip_skip", int),
+                ("positive", str),
+                ("negative", str),
+                ("empty_latent_width", int),
+                ("empty_latent_height", int),
+                ("seed", int),
+            ),
         },
     )
 
@@ -326,7 +382,10 @@ class MetadataComfyUI(Metadata):
         params = OrderedDict()
         for k, v in comfymeta.items():
             for vk, vv in v.items():
-                params[f"{k}.{vk}"] = str(vv)
+                vvstr = str(vv).strip()
+                if not vvstr:
+                    continue
+                params[f"{k}.{vk}"] = vvstr
         return params
 
     @staticmethod
@@ -535,6 +594,81 @@ def handle_check(filename: Path):
         print(f"\n{k.strip()}:\n{v.strip()}")
 
 
+class ColorLogFormatter(logging.Formatter):
+    GREY = "\x1b[38;20m"
+    YELLOW = "\x1b[33;20m"
+    RED = "\x1b[31;20m"
+    BOLD_RED = "\x1b[31;1m"
+    RESET = "\x1b[0m"
+
+    LEVEL_COLORS = {  # noqa: RUF012
+        logging.DEBUG: GREY,
+        logging.INFO: GREY,
+        logging.WARNING: YELLOW,
+        logging.ERROR: RED,
+        logging.CRITICAL: BOLD_RED,
+    }
+
+    def __init__(
+        self,
+        use_color: bool,
+        fmt="{asctime} {levelname:>8}: {message}",
+        datefmt="%Y%m%d.%H%M%S",
+    ):
+        super().__init__(
+            fmt=fmt,
+            datefmt="%Y%m%d.%H%M%S",
+            style="{",
+        )
+        if use_color:
+            self.formatters = {
+                ll: ColorExceptionLogFormatter(
+                    fmt=f"{self.LEVEL_COLORS[ll]}{fmt}{self.RESET}",
+                    datefmt=datefmt,
+                    style="{",
+                )
+                for ll in (
+                    logging.DEBUG,
+                    logging.INFO,
+                    logging.WARNING,
+                    logging.ERROR,
+                    logging.CRITICAL,
+                )
+            }
+        self.use_color = use_color
+
+    def format(self, record):
+        if not self.use_color:
+            return super().format(record)
+        return self.formatters[record.levelno].format(record)
+
+
+class ColorExceptionLogFormatter(logging.Formatter):
+    def formatException(self, exc_info):
+        result = super().formatException(exc_info)
+        return f"{ColorLogFormatter.BOLD_RED}{result}{ColorLogFormatter.RESET}"
+
+    def formatStack(self, stack_info):
+        return f"{ColorLogFormatter.BOLD_RED}{stack_info}{ColorLogFormatter.RESET}"
+
+
+def setup_logging():
+    global log  # noqa: PLW0603
+    log_level = getattr(
+        logging,
+        CFG.log_level.upper(),
+        None,
+    )
+    if log_level is None:
+        raise ValueError("Invalid log_level in configuration")
+    log = logging.getLogger("PromptInspector")
+    log.setLevel(log_level)
+    ch = logging.StreamHandler()  # Simple console logging
+    ch.setLevel(log_level)
+    ch.setFormatter(ColorLogFormatter(CFG.log_color))
+    log.addHandler(ch)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prompt inspector bot")
     parser.add_argument(
@@ -556,12 +690,7 @@ def main():
         handle_check(args.dump)
         return
     # Otherwise run the bot
-    log.basicConfig(
-        level=LOG_LEVEL,
-        format="{asctime} {levelname:>8}: {message}",
-        datefmt="%Y%m%d.%H%M%S",
-        style="{",
-    )
+    setup_logging()
     if not CFG.monitored_channel_ids:
         log.error("No channels to monitor!")
         sys.exit(1)
@@ -569,7 +698,7 @@ def main():
     if bot_token is None:
         log.error("BOT_TOKEN environment variable missing!")
         sys.exit(1)
-    client.run(os.environ["BOT_TOKEN"])
+    client.run(bot_token)
 
 
 if __name__ == "__main__":
