@@ -576,7 +576,11 @@ async def message_command_view_prompt_dm(ctx: ApplicationContext, message: Messa
     user_dm = await client.get_user(ctx.author.id).create_dm()
     for attachment, md in ((attachments[i], data) for i, data in metadata.items()):
         embed, view = md.get_embed_view(message, attachment)
-        await user_dm.send(embed=embed, view=view, mention_author=False)
+        try:
+            await user_dm.send(embed=embed, view=view, mention_author=False)
+        except:
+            await ctx.respond("Couldn't DM. Please check that your DMs from non-friends are enabled for this server.", ephemeral=True, delete_after=60)
+            return
     await ctx.respond("DM sent!", ephemeral=True, delete_after=60)
 
 
