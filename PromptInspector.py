@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import io
 import json
 import logging
@@ -70,6 +71,10 @@ class Config:
             ),
         ),
         ("a1111_prompt_size_limit", 1000),
+        ("comfyui_show_titles", True),
+        ("comfyui_extract_widget_values", True),
+        ("comfyui_prioritize_nodes_with_text", True),
+        ("comfyui_replace_field_newlines", True),
         ("message_embed_limit", 25),
         ("attach_file_size_threshold", 1980),
         ("react_on_no_metadata", False),
@@ -99,56 +104,6 @@ CFG = Config()
 
 intents = Intents.default() | Intents.message_content | Intents.members
 client = commands.Bot(intents=intents)
-
-
-def get_params_from_string(param_str):
-    max_prompt = CFG.a1111_prompt_size_limit
-    output_dict = {}
-    parts = param_str.split("Steps: ")
-    prompts = parts[0]
-    params = "Steps: " + parts[1]
-    if "Negative prompt: " in prompts:
-        output_dict["Prompt"] = prompts.split("Negative prompt: ")[0]
-        output_dict["Negative Prompt"] = prompts.split("Negative prompt: ")[1]
-        if len(output_dict["Negative Prompt"]) > max_prompt:
-            output_dict["Negative Prompt"] = (
-                output_dict["Negative Prompt"][:max_prompt] + "..."
-            )
-    else:
-        output_dict["Prompt"] = prompts
-    if len(output_dict["Prompt"]) > max_prompt:
-        output_dict["Prompt"] = output_dict["Prompt"][:max_prompt] + "..."
-    params = params.split(", ")
-    for param in params:
-        params = param.split(": ", 1)
-        if len(params) == 2:
-            output_dict[params[0]] = params[1]
-    return output_dict
-
-
-def get_embed(embed_dict, context: Message):
-    embed_dict = embed_dict | {}
-    embed = Embed(color=context.author.color)
-    count = 0
-    for key in CFG.a1111_important_fields:
-        if count >= CFG.message_embed_limit:
-            break
-        value = embed_dict.get(key)
-        if value is None:
-            continue
-        embed.add_field(name=key, value=value, inline="Prompt" not in key)
-        del embed_dict[key]
-        count += 1
-    for key, value in embed_dict.items():
-        if count >= CFG.message_embed_limit:
-            break
-        embed.add_field(name=key, value=value, inline="Prompt" not in key)
-        count += 1
-    embed.set_footer(
-        text=f"Posted by {context.author}",
-        icon_url=context.author.display_avatar,
-    )
-    return embed
 
 
 class InspectAttachmentView(View):
@@ -312,16 +267,21 @@ class MetadataComfyUI(Metadata):
     # This is just a read-only dict.
     COMFY_HANDLERS = MappingProxyType(
         {
+            # Handler format: input name, input type, [optional widget name]
+            # When widget name is present and conforms to the expected type its value will
+            # replace the node input value.
             "checkpointloadersimple": (("ckpt_name", str),),
             "vaeloader": (("vae_name", str),),
             "cliptextencode": (("text", str),),
+            "clipsetlastlayer": (("stop_at_clip_layer", int),),
+            "cliptextencodesdxl": (("text_l", str), ("text_g", str)),
+            "cliptextencodeperpweight": (("text", str),),
+            "bnk_cliptextencodeadvanced": (("text", str),),
+            "bnk_cliptextencodesdxladvanced": (("text", str),),
+            "editableclipencode": (("text", str),),
             "text multiline": (("text", str),),
             "emptylatentimage": (("width", int), ("height", int)),
             "promptcontrolsimple": (("positive", str), ("negative", str)),
-            "clipsetlastlayer": (("stop_at_clip_layer", int),),
-            "cliptextencodesdxl": (("text_l", str), ("text_g", str)),
-            "bnk_cliptextencodeadvanced": (("text", str),),
-            "bnk_cliptextencodesdxladvanced": (("text", str),),
             "ksampler": (
                 ("seed", int),
                 ("steps", int),
@@ -341,6 +301,36 @@ class MetadataComfyUI(Metadata):
             "samplercustom": (
                 ("noise_seed", int),
                 ("cfg", float),
+            ),
+            "ksampler with restarts (simple)": (
+                ("seed", int),
+                ("steps", int),
+                ("cfg", float),
+                ("sampler_name", str),
+                ("scheduler", str),
+            ),
+            "ksampler with restarts": (
+                ("seed", int),
+                ("steps", int),
+                ("cfg", float),
+                ("sampler_name", str),
+                ("scheduler", str),
+                ("restart_scheduler", str),
+            ),
+            "ksampler with restarts (advanced)": (
+                ("noise_seed", int),
+                ("steps", int),
+                ("cfg", float),
+                ("sampler_name", str),
+                ("scheduler", str),
+                ("restart_scheduler", str),
+            ),
+            "ksampler with restarts (custom)": (
+                ("noise_seed", int),
+                ("steps", int),
+                ("cfg", float),
+                ("scheduler", str),
+                ("restart_scheduler", str),
             ),
             "efficient_loader": (
                 ("ckpt_name", str),
@@ -373,46 +363,123 @@ class MetadataComfyUI(Metadata):
                 ("empty_latent_height", int),
                 ("seed", int),
             ),
+            "showtext|pysssss": (("text", str, "text"),),
         },
     )
 
-    def get_params_from_string(self, param_str: str) -> OrderedDict[str, str]:
-        jdata = json.loads(param_str)
-        comfymeta = self.extract_comfy_metadata(jdata)
+    def __init__(self, prompt: str, workflow: None | str):
+        self.text_metadata = prompt
+        self.params = self.get_params_from_string(prompt, workflow)
+
+    def get_embed(self, msg_ctx: Message, attachment=None):
+        return super().get_embed(
+            msg_ctx,
+            attachment=attachment,
+            prioritize_fields=tuple(k for k, v in self.params.items() if "text" in v)
+            if CFG.comfyui_prioritize_nodes_with_text
+            else (),
+        )
+
+    def get_params_from_string(
+        self,
+        param_str: str,
+        workflow_str: None | str,
+    ) -> OrderedDict[str, str]:
+        promptdata = json.loads(param_str)
+        workflowdata = {}
+        if workflow_str:
+            with contextlib.suppress(Exception):
+                workflowdata = json.loads(workflow_str)
+        comfymeta = self.extract_comfy_metadata(promptdata, workflowdata)
         params = OrderedDict()
+        nl = "\n"
         for k, v in comfymeta.items():
-            for vk, vv in v.items():
-                vvstr = str(vv).strip()
-                if not vvstr:
-                    continue
-                params[f"{k}.{vk}"] = vvstr
+            vs = ((ik, str(iv)) for ik, iv in v.items())
+            params[k] = "\n".join(
+                f"[{ik}]:{f' {iv}' if len(iv) < 32 else f'{nl}{iv}{nl}'}"
+                for ik, iv in vs
+            ).strip()
         return params
 
     @staticmethod
-    def set_comfy_input(result, node_class, node_id, key, inputs, typ=str) -> None:
+    def set_comfy_input(result, name, key, inputs, typ=str) -> None:
         val = inputs.get(key)
         if val is None or not isinstance(val, typ):
             return
-        k = f"{node_class}.{node_id}"
-        vals = result.get(k)
+        if typ is str:
+            if CFG.comfyui_replace_field_newlines:
+                val = val.replace("\r", " ").replace("\n", " ")
+            val = val.strip()
+        vals = result.get(name)
         if vals is None:
-            result[k] = {key: val}
+            result[name] = {key: val}
         else:
             vals[key] = val
 
     @classmethod
-    def extract_comfy_metadata(cls, data, result=None):
+    def set_widget_value(
+        cls,
+        workflowdata,
+        inputs,
+        node_id,
+        input_name,
+        required_type,
+        widget_name,
+    ):
+        wf_node = workflowdata.get(node_id, {})
+        widget_idx = -1
+        for idx, wf_input in enumerate(wf_node.get("inputs", ())):
+            if wf_input.get("name") != input_name:
+                continue
+            cur_widget_name = wf_input.get("widget", {}).get("name")
+            if cur_widget_name != widget_name:
+                continue
+            widget_idx = idx
+            break
+        widget_values = wf_node.get("widgets_values", ())
+        if widget_idx != -1 and widget_idx < len(widget_values):
+            widget_value = None
+            with contextlib.suppress(IndexError):
+                widget_value = widget_values[widget_idx][0]
+            if isinstance(widget_value, required_type):
+                inputs[input_name] = widget_value
+
+    @classmethod
+    def extract_comfy_metadata(cls, promptdata, workflowdata, result=None):
+        workflowdata = {str(v["id"]): v for v in workflowdata.get("nodes", ())}
         handlers = cls.COMFY_HANDLERS
         if result is None:
             result = OrderedDict()
-        for k, v in data.items():
-            inputs = v.get("inputs")
+        for k, v in promptdata.items():
+            inputs = v.get("inputs").copy()
             typ = v.get("class_type", "").strip()
             handler = handlers.get(typ.lower())
             if not inputs or not handler:
                 continue
-            for input_name, input_class in handler:
-                cls.set_comfy_input(result, typ, k, input_name, inputs, input_class)
+            for input_name, required_type, *rest in handler:
+                if rest and CFG.comfyui_extract_widget_values:
+                    cls.set_widget_value(
+                        workflowdata,
+                        inputs,
+                        k,
+                        input_name,
+                        required_type,
+                        rest[0],
+                    )
+                if CFG.comfyui_show_titles:
+                    title = v.get("_meta", {}).get("title", None)
+                    if isinstance(title, str):
+                        title = title.strip()
+                    if title == typ:
+                        title = None
+                else:
+                    title = None
+                name = (
+                    f"{typ}.{k} - {title.strip()}"
+                    if isinstance(title, str)
+                    else f"{typ}.{k}"
+                )
+                cls.set_comfy_input(result, name, input_name, inputs, required_type)
         return result
 
 
@@ -430,7 +497,7 @@ def populate_attachment_metadata(
             metadata[i] = MetadataA1111(ii["parameters"])
         elif ii.get("prompt", "").lstrip().startswith('{"'):
             # (Apparent) JSON data in prompt field, looks like ComfyUI format
-            metadata[i] = MetadataComfyUI(ii["prompt"])
+            metadata[i] = MetadataComfyUI(ii["prompt"], ii.get("workflow"))
         #
         # NovelAI NYI
         # elif img.info.get("Software") == "NovelAI" and "Description" in img.info:
@@ -578,8 +645,14 @@ async def message_command_view_prompt_dm(ctx: ApplicationContext, message: Messa
         embed, view = md.get_embed_view(message, attachment)
         try:
             await user_dm.send(embed=embed, view=view, mention_author=False)
-        except:
-            await ctx.respond("Couldn't DM. Please check that your DMs from non-friends are enabled for this server.", ephemeral=True, delete_after=60)
+        except Exception as error:
+            errname = type(error).__name__
+            log.exception(__f("Error: {errname}", errname=errname), exc_info=error)
+            await ctx.respond(
+                "Couldn't DM. Please check that your DMs from non-friends are enabled for this server.",
+                ephemeral=True,
+                delete_after=60,
+            )
             return
     await ctx.respond("DM sent!", ephemeral=True, delete_after=60)
 
