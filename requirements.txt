@@ -1,4 +1,4 @@
 toml~=0.10.2
 python-dotenv~=1.0.0
 Pillow~=9.4.0
-discord
+py-cord==2.4.1
