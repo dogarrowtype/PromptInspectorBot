@@ -605,10 +605,16 @@ async def on_raw_reaction_add(ctx: RawReactionActionEvent):
     count = 0
     if metadata:
         user_dm = await client.get_user(ctx.user_id).create_dm()
-        for attachment, md in ((attachments[i], data) for i, data in metadata.items()):
-            embed, view = md.get_embed_view(message, attachment)
-            await user_dm.send(embed=embed, view=view, mention_author=False)
-            count += 1
+        try:
+            for attachment, md in ((attachments[i], data) for i, data in metadata.items()):
+                embed, view = md.get_embed_view(message, attachment)
+                await user_dm.send(embed=embed, view=view, mention_author=False)
+                count += 1
+        except Exception as error:
+            errname = type(error).__name__
+            log.exception(__f("Error: {errname}", errname=errname), exc_info=error)
+            await user_dm.send(content="Something went wrong when sending the prompt, sorry! The prompt for the image you have requested may be too long to send.", mention_author=False)
+             
     await update_reactions(message, count)
 
 
@@ -626,9 +632,19 @@ async def message_command_view_prompt(ctx: ApplicationContext, message: Message)
         (attachments[i], data) for i, data in metadata.items()
     ):
         embed, view = md.get_embed_view(message, attachment, ephemeral=True)
-        await ctx.respond(embed=embed, view=view, **extraargs)
-        if idx == 0:
-            extraargs["ephemeral"] = True
+        try:
+            await ctx.respond(embed=embed, view=view, **extraargs)
+            if idx == 0:
+                extraargs["ephemeral"] = True
+        except Exception as error:
+            errname = type(error).__name__
+            log.exception(__f("Error: {errname}", errname=errname), exc_info=error)
+            await ctx.respond(
+                "Couldn't DM. The prompt may be too long. Also, please check that your DMs from non-friends are enabled for this server.",
+                ephemeral=True,
+                delete_after=60,
+            )
+            return
 
 
 @client.message_command(name="View Prompt (Get a DM)")
@@ -649,7 +665,7 @@ async def message_command_view_prompt_dm(ctx: ApplicationContext, message: Messa
             errname = type(error).__name__
             log.exception(__f("Error: {errname}", errname=errname), exc_info=error)
             await ctx.respond(
-                "Couldn't DM. Please check that your DMs from non-friends are enabled for this server.",
+                "Couldn't DM. The prompt may be too long. Also, please check that your DMs from non-friends are enabled for this server.",
                 ephemeral=True,
                 delete_after=60,
             )
