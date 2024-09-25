@@ -530,7 +530,7 @@ async def collect_attachments(
     ]
     if not attachments:
         if respond:
-            await ctx.respond("This post contains no matching images.", ephemeral=True)
+            await ctx.respond("Sorry, this post has no images, or none of the images have prompts.", ephemeral=True)
         return None, None
     metadata = OrderedDict()
     tasks = [
@@ -541,7 +541,7 @@ async def collect_attachments(
     if not metadata:
         if respond:
             await ctx.respond(
-                "This post contains no image generation data.",
+                "Sorry, none of the images in this post have prompts.",
                 ephemeral=True,
             )
         return None, None
