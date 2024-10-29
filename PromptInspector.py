@@ -106,6 +106,15 @@ intents = Intents.default() | Intents.message_content | Intents.members
 client = commands.Bot(intents=intents)
 
 
+def reformat_json(string: str, indent: int = 1) -> None | str:
+    try:
+        data = json.loads(string)  # put JSON-data to a variable
+        return json.dumps(data, indent=indent)
+    except json.decoder.JSONDecodeError:
+        # not a valid JSON
+        return None
+
+
 class InspectAttachmentView(View):
     TXTBLOCK_TYPES = MappingProxyType(
         {"txt": "plaintext", "json": "json", "yaml": "yaml"},
@@ -134,20 +143,24 @@ class InspectAttachmentView(View):
         if not self.text_metadata:
             await interaction.followup.send("No metadata to send!", **self.kwargs)
             return
+        json_metadata = reformat_json(self.text_metadata)
         if len(self.text_metadata) <= CFG.attach_file_size_threshold:
-            typ = self.TXTBLOCK_TYPES.get(self.content_extension, "plaintext")
-            await interaction.followup.send(
-                f"```{typ}\n{self.text_metadata}```",
-                **self.kwargs,
-            )
+            if json_metadata is None:
+                typ = self.TXTBLOCK_TYPES.get(self.content_extension, "plaintext")
+                followup_text = f"```{typ}\n{self.text_metadata}```"
+            else:
+                followup_text = f"```json\n{json_metadata}```"
+            await interaction.followup.send(followup_text, **self.kwargs)
             return
         with io.StringIO() as f:
-            f.write(self.text_metadata)
+            if json_metadata is None:
+                f.write(self.text_metadata)
+                followup_file_name = f"parameters.{self.content_extension}"
+            else:
+                f.write(json_metadata)
+                followup_file_name = f"parameters.json"
             f.seek(0)
-            await interaction.followup.send(
-                file=File(f, f"parameters.{self.content_extension}"),
-                **self.kwargs,
-            )
+            await interaction.followup.send(file=File(f, followup_file_name), **self.kwargs)
 
 
 class Metadata:
