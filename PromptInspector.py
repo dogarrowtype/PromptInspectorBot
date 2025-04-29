@@ -37,9 +37,6 @@ def set_resource_limits():
     # Limit max memory usage (1GB)
     resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024, 1024 * 1024 * 1024))
     
-    # Limit CPU time (30 seconds per process)
-    resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
-    
     # Limit number of processes/threads
     try:
         resource.setrlimit(resource.RLIMIT_NPROC, (100, 100))
@@ -61,14 +58,14 @@ load_dotenv()
 log = None
 
 def sanitize_text(text, max_length=10000):
-    """Sanitize text content from untrusted sources"""
+    """Sanitize text content from untrusted sources while preserving newlines"""
     if not isinstance(text, str):
         return ""
     # Truncate overly long text
     text = text[:max_length]
-    # Only allow ASCII characters (7-bit)
-    text = re.sub(r'[^\x20-\x7E]', '', text)
-    # Remove potentially dangerous control characters
+    # Allow ASCII characters (7-bit) and newlines
+    text = re.sub(r'[^\x20-\x7E\x0A\x0D]', '', text)
+    # Remove potentially dangerous control characters, but keep newlines
     text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', text)
     return text
 
