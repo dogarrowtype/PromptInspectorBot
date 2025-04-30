@@ -60,14 +60,14 @@ log = None
 def sanitize_text(text, max_length=10000):
     """
     Sanitize text content to only allow specific characters:
-    A-Z a-z 0-9 () _ <> : , {} ' " \ and newlines
+    A-Z a-z 0-9 () _ <> : , {} ' " \ [] and newlines
     """
     if not isinstance(text, str):
         return ""
     # Truncate overly long text
     text = text[:max_length]
     # Only allow specified characters and newlines (\n and \r)
-    text = re.sub(r'[^A-Za-z0-9\(\)_<>:,\{\}\'"\ \n\r\\]', '', text)
+    text = re.sub(r'[^A-Za-z0-9\(\)_<>:,\{\}\'"\ \n\r\\\[\]', '', text)
     return text
 
 def safe_json_loads(json_str, default=None):
