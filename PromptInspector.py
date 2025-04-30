@@ -58,15 +58,16 @@ load_dotenv()
 log = None
 
 def sanitize_text(text, max_length=10000):
-    """Sanitize text content from untrusted sources while preserving newlines"""
+    """
+    Sanitize text content to only allow specific characters:
+    A-Z a-z 0-9 () _ <> : , {} ' " and newlines
+    """
     if not isinstance(text, str):
         return ""
     # Truncate overly long text
     text = text[:max_length]
-    # Allow ASCII characters (7-bit) and newlines
-    text = re.sub(r'[^\x20-\x7E\x0A\x0D]', '', text)
-    # Remove potentially dangerous control characters, but keep newlines
-    text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', text)
+    # Only allow specified characters and newlines (\n and \r)
+    text = re.sub(r'[^A-Za-z0-9\(\)_<>:,\{\}\'"\ \n\r]', '', text)
     return text
 
 def safe_json_loads(json_str, default=None):
