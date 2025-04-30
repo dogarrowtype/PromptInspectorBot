@@ -67,7 +67,7 @@ def sanitize_text(text, max_length=10000):
     # Truncate overly long text
     text = text[:max_length]
     # Only allow specified characters and newlines (\n and \r)
-    text = re.sub(r'[^A-Za-z0-9\(\)_<>:,\{\}\'"\ \n\r\\\[\]', '', text)
+    text = re.sub(r'[^A-Za-z0-9\(\)_<>:,\{\}\'"\ \n\r\\\[\]]', '', text)
     return text
 
 def safe_json_loads(json_str, default=None):
