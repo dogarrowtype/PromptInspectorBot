@@ -591,6 +591,63 @@ class MetadataComfyUI(Metadata):
                 
         return result
 
+class MetadataNovelAI(Metadata):
+    NAME = "NovelAI"
+    CONTENT_TYPE = "application/json"
+    EXTENSION = "json"
+    
+    def get_embed(self, msg_ctx: Message, attachment=None):
+        return super().get_embed(
+            msg_ctx,
+            attachment=attachment,
+            prioritize_fields=("Prompt", "Negative Prompt", "Steps", "Sampler", "CFG scale", "Seed", "Size", "Model"),
+        )
+    
+    def get_params_from_string(self, param_str: str) -> OrderedDict[str, str]:
+        # Sanitize input
+        param_str = sanitize_text(param_str, 50000)
+        output_dict = OrderedDict()
+        
+        try:
+            # Parse the JSON data from the Comment field
+            data = safe_json_loads(param_str, {})
+            
+            # Extract main parameters
+            output_dict["Prompt"] = sanitize_text(data.get("prompt", ""), 1000)
+            
+            # Extract negative prompt from v4_negative_prompt if available
+            if "v4_negative_prompt" in data and isinstance(data["v4_negative_prompt"], dict):
+                neg_caption = data["v4_negative_prompt"].get("caption", {})
+                if isinstance(neg_caption, dict) and "base_caption" in neg_caption:
+                    output_dict["Negative Prompt"] = sanitize_text(neg_caption["base_caption"], 1000)
+            elif "uc" in data:  # Fallback to uc field if available
+                output_dict["Negative Prompt"] = sanitize_text(data.get("uc", ""), 1000)
+            
+            # Extract other common parameters
+            output_dict["Steps"] = str(data.get("steps", ""))
+            output_dict["Sampler"] = sanitize_text(data.get("sampler", ""), 100)
+            output_dict["CFG scale"] = str(data.get("scale", ""))
+            output_dict["Seed"] = str(data.get("seed", ""))
+            
+            # Size information
+            width = data.get("width", "")
+            height = data.get("height", "")
+            if width and height:
+                output_dict["Size"] = f"{width}x{height}"
+                
+            # Add model information if available
+            if "Source" in data:
+                output_dict["Model"] = sanitize_text(data.get("Source", ""), 100)
+                
+            if "cfg_rescale" in data and data["cfg_rescale"] != 0:
+                output_dict["CFG Rescale"] = str(data["cfg_rescale"])
+                
+        except Exception as e:
+            log.warning(f"Error parsing NovelAI metadata: {e}")
+            output_dict["Error"] = "Could not parse metadata correctly"
+            
+        return output_dict
+
 def is_valid_image(image_data: bytes) -> bool:
     """Verify this is actually a valid image file"""
     if not image_data or len(image_data) < 100:
@@ -613,18 +670,24 @@ def populate_attachment_metadata(
     if not is_valid_image(image_data):
         log.warning(f"Invalid image data for attachment {i}")
         return
-        
     try:
         with Image.open(io.BytesIO(image_data)) as img:
             if not img.info:
                 return
             ii = img.info
             
+            # Check for NovelAI format
+            if "Software" in ii and ii["Software"] == "NovelAI" and "Comment" in ii:
+                comment = sanitize_text(ii["Comment"], 50000)
+                metadata[i] = MetadataNovelAI(comment)
+                return
+            
             # Check for A1111 format
             if "parameters" in ii and isinstance(ii["parameters"], str):
                 parameters = sanitize_text(ii["parameters"], 50000)
                 if "Steps:" in parameters:
                     metadata[i] = MetadataA1111(parameters)
+                    return
                     
             # Check for ComfyUI format
             elif "prompt" in ii and isinstance(ii["prompt"], str):
@@ -632,7 +695,7 @@ def populate_attachment_metadata(
                 if prompt.lstrip().startswith("{"):
                     workflow = sanitize_text(ii.get("workflow", ""), 50000) if "workflow" in ii else None
                     metadata[i] = MetadataComfyUI(prompt, workflow)
-            
+                    return
     except Exception as error:
         errname = type(error).__name__
         log.exception(__f("Error in populate_attachment_metadata: {errname}", errname=errname), exc_info=error)
