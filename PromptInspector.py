@@ -612,14 +612,58 @@ class MetadataNovelAI(Metadata):
             # Parse the JSON data from the Comment field
             data = safe_json_loads(param_str, {})
             
-            # Extract main parameters
-            output_dict["Prompt"] = sanitize_text(data.get("prompt", ""), 1000)
+            # Extract v4 prompt structure if available
+            v4_prompt = data.get("v4_prompt", {})
+            if isinstance(v4_prompt, dict) and "caption" in v4_prompt:
+                v4_caption = v4_prompt["caption"]
+                if isinstance(v4_caption, dict):
+                    # Extract base caption
+                    base_caption = v4_caption.get("base_caption", "")
+                    if base_caption:
+                        output_dict["Prompt"] = sanitize_text(base_caption, 1000)
+                    
+                    # Extract character-specific captions
+                    char_captions = v4_caption.get("char_captions", [])
+                    if isinstance(char_captions, list) and char_captions:
+                        for i, char_data in enumerate(char_captions):
+                            if isinstance(char_data, dict) and "char_caption" in char_data:
+                                char_caption = char_data["char_caption"]
+                                if char_caption:  # Only add non-empty character captions
+                                    centers = char_data.get("centers", [])
+                                    center_info = ""
+                                    if centers and isinstance(centers, list) and centers[0]:
+                                        center = centers[0]
+                                        if isinstance(center, dict) and "x" in center and "y" in center:
+                                            center_info = f" (center: {center['x']}, {center['y']})"
+                                    output_dict[f"Character {i+1} Prompt"] = sanitize_text(char_caption + center_info, 1000)
+            else:
+                # Fallback to old prompt field for backwards compatibility
+                output_dict["Prompt"] = sanitize_text(data.get("prompt", ""), 1000)
             
-            # Extract negative prompt from v4_negative_prompt if available
-            if "v4_negative_prompt" in data and isinstance(data["v4_negative_prompt"], dict):
-                neg_caption = data["v4_negative_prompt"].get("caption", {})
-                if isinstance(neg_caption, dict) and "base_caption" in neg_caption:
-                    output_dict["Negative Prompt"] = sanitize_text(neg_caption["base_caption"], 1000)
+            # Extract v4 negative prompt structure if available
+            v4_negative_prompt = data.get("v4_negative_prompt", {})
+            if isinstance(v4_negative_prompt, dict) and "caption" in v4_negative_prompt:
+                v4_neg_caption = v4_negative_prompt["caption"]
+                if isinstance(v4_neg_caption, dict):
+                    # Extract base negative caption
+                    base_neg_caption = v4_neg_caption.get("base_caption", "")
+                    if base_neg_caption:
+                        output_dict["Negative Prompt"] = sanitize_text(base_neg_caption, 1000)
+                    
+                    # Extract character-specific negative captions
+                    char_neg_captions = v4_neg_caption.get("char_captions", [])
+                    if isinstance(char_neg_captions, list) and char_neg_captions:
+                        for i, char_data in enumerate(char_neg_captions):
+                            if isinstance(char_data, dict) and "char_caption" in char_data:
+                                char_neg_caption = char_data["char_caption"]
+                                if char_neg_caption:  # Only add non-empty character negative captions
+                                    centers = char_data.get("centers", [])
+                                    center_info = ""
+                                    if centers and isinstance(centers, list) and centers[0]:
+                                        center = centers[0]
+                                        if isinstance(center, dict) and "x" in center and "y" in center:
+                                            center_info = f" (center: {center['x']}, {center['y']})"
+                                    output_dict[f"Character {i+1} Negative Prompt"] = sanitize_text(char_neg_caption + center_info, 1000)
             elif "uc" in data:  # Fallback to uc field if available
                 output_dict["Negative Prompt"] = sanitize_text(data.get("uc", ""), 1000)
             
