@@ -801,6 +801,7 @@ async def update_reactions(message: Message, count: int):
     try:
         if count > 0:
             await message.add_reaction("🔎")
+        # Add reaction for no metadata
         elif CFG.react_on_no_metadata:
             await message.add_reaction("⛔")
     except Exception as error:
@@ -825,6 +826,8 @@ async def on_message(message: Message):
             if a.filename.lower().endswith(".png") and a.size < CFG.scan_limit_bytes
         ]
         if not attachments:
+            # No metadata, send reaction with count 0 for no meta found
+            await update_reactions(message, 0)
             return
             
         log.info(__f("MESSAGE: {0!r}", message))
