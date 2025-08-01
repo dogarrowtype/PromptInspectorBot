@@ -144,6 +144,8 @@ class Config:
         ("message_embed_limit", 25),
         ("attach_file_size_threshold", 1980),
         ("react_on_no_metadata", False),
+        ("emoji_metadata_found", "🔎"),
+        ("emoji_no_metadata", "⛔"),
         ("log_color", False),
         ("log_level", "INFO"),
     )
@@ -800,10 +802,10 @@ async def collect_attachments(
 async def update_reactions(message: Message, count: int):
     try:
         if count > 0:
-            await message.add_reaction("🔎")
+            await message.add_reaction(CFG.emoji_metadata_found)
         # Add reaction for no metadata
         elif CFG.react_on_no_metadata:
-            await message.add_reaction("⛔")
+            await message.add_reaction(CFG.emoji_no_metadata)
     except Exception as error:
         log.warning(f"Failed to update reactions: {error}")
 
@@ -850,7 +852,7 @@ async def on_message(message: Message):
 async def on_raw_reaction_add(ctx: RawReactionActionEvent):
     """Send image metadata in reacted post to user DMs"""
     if (
-        ctx.emoji.name != "🔎"
+        ctx.emoji.name != CFG.emoji_metadata_found
         or ctx.channel_id not in CFG.monitored_channel_ids
     ):
         return
