@@ -888,8 +888,11 @@ async def on_raw_reaction_add(ctx: RawReactionActionEvent):
             except Exception as error:
                 errname = type(error).__name__
                 log.exception(__f("Error sending DM: {errname}", errname=errname), exc_info=error)
-                
-        await update_reactions(message, count)
+
+        if count > 0:        
+            await update_reactions(message, count)
+        else:
+            return
     except Exception as error:
         log.exception(f"Error in on_raw_reaction_add: {error}")
 
