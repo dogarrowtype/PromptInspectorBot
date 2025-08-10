@@ -243,6 +243,97 @@ class Metadata:
             view = InspectAttachmentView(text_metadata=self.text_metadata)
         return embed, view
 
+    def _calculate_embed_character_count(self, embed):
+        """Calculate total character count of an embed including all components that count toward Discord's limit"""
+        total = 0
+        
+        # Title (up to 256 chars)
+        if embed.title:
+            total += len(embed.title)
+        
+        # Description (up to 4096 chars)
+        if embed.description:
+            total += len(embed.description)
+        
+        # Footer text (up to 2048 chars)
+        if embed.footer and embed.footer.text:
+            total += len(embed.footer.text)
+            
+        # Author name (up to 256 chars)
+        if embed.author and embed.author.name:
+            total += len(embed.author.name)
+            
+        # All field names and values
+        for field in embed.fields:
+            total += len(field.name) + len(field.value)
+            
+        return total
+
+    def _prune_embed_fields(self, embed, prioritize_fields: tuple[str] = ()):
+        """Prune embed fields to keep total character count under 5500"""
+        target_limit = 5500  # More aggressive limit to account for any overhead
+        
+        original_count = self._calculate_embed_character_count(embed)
+        if original_count <= target_limit:
+            return embed
+            
+        log.info(f"Embed too large ({original_count} chars), pruning to fit under {target_limit}")
+        
+        # Create lists of prioritized and non-prioritized fields with their lengths
+        prioritized_fields = []
+        other_fields = []
+        
+        for field in embed.fields:
+            field_data = {
+                'name': field.name,
+                'value': field.value,
+                'inline': field.inline,
+                'length': len(field.name) + len(field.value)
+            }
+            
+            if field.name in prioritize_fields:
+                prioritized_fields.append(field_data)
+            else:
+                other_fields.append(field_data)
+        
+        # Sort non-prioritized fields by length (descending) to keep longer ones
+        other_fields.sort(key=lambda x: x['length'], reverse=True)
+        
+        # Clear embed fields and rebuild
+        embed.clear_fields()
+        
+        # Always add prioritized fields first
+        for field_data in prioritized_fields:
+            embed.add_field(
+                name=field_data['name'],
+                value=field_data['value'],
+                inline=field_data['inline']
+            )
+        
+        # Add non-prioritized fields one by one until we approach the limit
+        for field_data in other_fields:
+            # Calculate what the count would be if we add this field
+            temp_embed = embed.copy()
+            temp_embed.add_field(
+                name=field_data['name'],
+                value=field_data['value'],
+                inline=field_data['inline']
+            )
+            
+            if self._calculate_embed_character_count(temp_embed) <= target_limit:
+                embed.add_field(
+                    name=field_data['name'],
+                    value=field_data['value'],
+                    inline=field_data['inline']
+                )
+            else:
+                # Stop adding fields as we've reached the limit
+                break
+                
+        final_count = self._calculate_embed_character_count(embed)
+        log.info(f"Embed pruned from {original_count} to {final_count} characters")
+        return embed
+
     def get_embed(
         self,
         msg_ctx: Message,
@@ -297,6 +388,35 @@ class Metadata:
         )
         if attachment is not None:
             embed.set_image(url=attachment.url)
+            
+        # Apply pruning logic if embed is too large
+        embed = self._prune_embed_fields(embed, prioritize_fields)
+        
+        # Final safety check
+        final_count = self._calculate_embed_character_count(embed)
+        if final_count > 6000:
+            log.error(f"Embed still too large after pruning: {final_count} characters")
+            # Emergency fallback - keep only the first few prioritized fields
+            embed.clear_fields()
+            field_count = 0
+            for key in prioritize_fields:
+                if field_count >= 5:  # Limit to 5 fields maximum
+                    break
+                value = self.params.get(key)
+                if value is None:
+                    continue
+                if len(value) > 512:  # Aggressive truncation
+                    value = value[:509] + "..."
+                embed.add_field(
+                    name=key[:100],  # Truncate field names too
+                    value=value,
+                    inline=False
+                )
+                field_count += 1
+                if self._calculate_embed_character_count(embed) > 5000:
+                    break
+            log.info(f"Emergency pruning applied, final size: {self._calculate_embed_character_count(embed)}")
+        
         return embed
 
 class MetadataA1111(Metadata):
