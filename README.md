@@ -3,6 +3,10 @@ Forked from https://github.com/sALTaccount/PromptInspectorBot
 # Prompt Inspector 🔎
 Inspect prompts 🔎 from images uploaded to discord
 
+> **Note:** This is the original branch with Privileged Intents and full functionality. It requires **privileged
+> gateway intents** to function. With large user counts, you will need to get approved by discord.
+> See the `no-privileged-intents` branch for a version that doesn't need approval, but has reduced features.
+
 ## Functionality
 
 This Discord bot reacts to any image with generation metadata from Automatic1111's WebUI and ComfyUI.
