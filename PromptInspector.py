@@ -37,11 +37,9 @@ def set_resource_limits():
     # Limit max memory usage (1GB)
     resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024, 1024 * 1024 * 1024))
     
-    # Limit number of processes/threads
-    try:
-        resource.setrlimit(resource.RLIMIT_NPROC, (100, 100))
-    except (ValueError, resource.error):
-        pass  # May not work depending on permissions
+    # NOTE: RLIMIT_NPROC limits ALL processes for the user account system-wide,
+    # not just this bot. Setting it too low prevents the bot from creating
+    # necessary threads for async operations. Removed to prevent thread creation errors.
 
 # Apply resource limits early
 set_resource_limits()
