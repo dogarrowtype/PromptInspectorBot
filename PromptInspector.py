@@ -24,7 +24,6 @@ from discord import (
     File,
     Intents,
     Message,
-    RawReactionActionEvent,
 )
 from discord.ext import commands
 from discord.ui import View, button
@@ -141,9 +140,7 @@ class Config:
         ("comfyui_replace_field_newlines", True),
         ("message_embed_limit", 25),
         ("attach_file_size_threshold", 1980),
-        ("react_on_no_metadata", False),
         ("emoji_metadata_found", "🔎"),
-        ("emoji_no_metadata", "⛔"),
         ("log_color", False),
         ("log_level", "INFO"),
     )
@@ -170,7 +167,7 @@ class Config:
 
 
 CFG = Config()
-intents = Intents.default() | Intents.message_content | Intents.members
+intents = Intents.default()
 client = commands.Bot(intents=intents)
 rate_limiter = RateLimiter()
 
@@ -915,104 +912,16 @@ async def collect_attachments(
                 ephemeral=True,
             )
         return None, None
-    return metadata, attachments
-
-async def update_reactions(message: Message, count: int):
-    try:
-        if count > 0:
+    if respond:
+        try:
             await message.add_reaction(CFG.emoji_metadata_found)
-        # Add reaction for no metadata
-        elif CFG.react_on_no_metadata:
-            await message.add_reaction(CFG.emoji_no_metadata)
-    except Exception as error:
-        log.warning(f"Failed to update reactions: {error}")
+        except Exception as error:
+            log.warning(f"Failed to add marker reaction: {error}")
+    return metadata, attachments
 
 @client.event
 async def on_ready():
     log.info(__f("Logged in as {user}!", user=client.user))
-
-@client.event
-async def on_message(message: Message):
-    if (
-        not (message.channel.id in CFG.monitored_channel_ids and message.attachments)
-        or message.author.bot
-    ):
-        return
-        
-    try:
-        attachments = [
-            a
-            for a in message.attachments
-            if a.filename.lower().endswith(".png") and a.size < CFG.scan_limit_bytes
-        ]
-        if not attachments:
-            # No metadata, send reaction with count 0 for no meta found
-            await update_reactions(message, 0)
-            return
-            
-        log.info(__f("MESSAGE: {0!r}", message))
-        count = 0
-        
-        for i, attachment in enumerate(
-            attachments,
-        ):  # download one at a time as usually the first image is already ai-generated
-            metadata = OrderedDict()
-            await read_attachment_metadata(i, attachment, metadata)
-            if metadata:
-                count += 1
-                break
-                
-        await update_reactions(message, count)
-    except Exception as error:
-        log.exception(f"Error in on_message: {error}")
-
-@client.event
-async def on_raw_reaction_add(ctx: RawReactionActionEvent):
-    """Send image metadata in reacted post to user DMs"""
-    if (
-        ctx.emoji.name != CFG.emoji_metadata_found
-        or ctx.channel_id not in CFG.monitored_channel_ids
-    ):
-        return
-        
-    try:
-        # Check if reaction is from the bot itself
-        if ctx.member and ctx.member.bot:
-            return
-            
-        channel = client.get_channel(ctx.channel_id)
-        message = await channel.fetch_message(ctx.message_id)
-        if not message:
-            return
-            
-        log.info(__f("REACTION: {0!r}", ctx))
-        metadata, attachments = await collect_attachments(ctx, message, respond=False)
-        
-        count = 0
-        if metadata:
-            # Check rate limit before processing
-            if rate_limiter.is_rate_limited(ctx.user_id):
-                log.warning(f"Rate limit exceeded for user {ctx.user_id}")
-                return
-                
-            user = await client.fetch_user(ctx.user_id)
-            try:
-                user_dm = await user.create_dm()
-                
-                for attachment, md in ((attachments[i], data) for i, data in metadata.items()):
-                    embed, view = md.get_embed_view(message, attachment)
-                    await user_dm.send(embed=embed, view=view, mention_author=False)
-                    count += 1
-            except Exception as error:
-                errname = type(error).__name__
-                log.exception(__f("Error sending DM: {errname}", errname=errname), exc_info=error)
-
-        if count > 0:        
-            await update_reactions(message, count)
-        else:
-            return
-    except Exception as error:
-        log.exception(f"Error in on_raw_reaction_add: {error}")
 
 @client.message_command(name="View Prompt")
 async def message_command_view_prompt(ctx: ApplicationContext, message: Message):
@@ -1070,7 +979,7 @@ async def message_command_view_prompt_dm(ctx: ApplicationContext, message: Messa
         if not metadata:
             return
             
-        user_dm = await client.get_user(ctx.author.id).create_dm()
+        user_dm = await ctx.author.create_dm()
         for attachment, md in ((attachments[i], data) for i, data in metadata.items()):
             embed, view = md.get_embed_view(message, attachment)
             try:
